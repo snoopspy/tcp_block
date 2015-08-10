@@ -646,10 +646,10 @@ struct libnet_gre_sre_hdr
  */
 struct libnet_ipv4_hdr
 {
-#if (LIBNET_LIL_ENDIAN)
+//#if (LIBNET_LIL_ENDIAN)
     u_int8_t ip_hl:4,      /* header length */
            ip_v:4;         /* version */
-#endif
+//#endif
 #if (LIBNET_BIG_ENDIAN)
     u_int8_t ip_v:4,       /* version */
            ip_hl:4;        /* header length */

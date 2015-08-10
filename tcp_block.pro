@@ -2,7 +2,7 @@
 CONFIG -= qt
 LIBS += -lpcap
 SOURCES += *.cpp
-HEADERS += libnet/*.h
+HEADERS += *.h libnet/*.h
 
 #QT       += core
 #QT       -= gui

@@ -1,18 +1,9 @@
-#ifdef WIN32
-#define  WPCAP
-#define  HAVE_REMOTE
-#else
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#endif
-#include <pcap.h>
 #include <iostream>
 #include <stdlib.h>
+#include <string.h>
 
-#include <libnet/libnet-macros.h>
-#include <libnet/libnet-headers.h>
+#include "common.h"
+#include "checksum.h"
 
 static pcap_if_t* alldevs;
 
@@ -80,7 +71,11 @@ static pcap_t* openDevice(pcap_if_t* d) {
 
   //compile the filter
   bpf_program fcode;
-  if (pcap_compile(handle, &fcode, "tcp and port 80", 1, netmask) < 0)
+  //static const char* filter = "tcp[20:4]=0x47455420";
+  //static const char* filter = "tcp and host 58.76.179.113 and len > 60";
+  static const char* filter = "tcp[((tcp[12:1] & 0xf0) >> 2):4] = 0x47455420";
+
+  if (pcap_compile(handle, &fcode, filter, 1, netmask) < 0)
   {
      fprintf(stderr,"\nUnable to compile the packet filter. Check the syntax.\n");
      pcap_freealldevs(alldevs);
@@ -99,7 +94,7 @@ static pcap_t* openDevice(pcap_if_t* d) {
   return handle;
 }
 
-static void processPacket(pcap_if_t* handle, struct pcap_pkthdr* header, const u_char* pkt_data) {
+static void processPacket(pcap_t* handle, struct pcap_pkthdr* header, const u_char* pkt_data) {
   libnet_ethernet_hdr* ethHdr = (libnet_ethernet_hdr*)pkt_data;
   if (ntohs(ethHdr->ether_type) != ETHERTYPE_IP)
       return;
@@ -110,20 +105,41 @@ static void processPacket(pcap_if_t* handle, struct pcap_pkthdr* header, const u
 
   //libnet_tcp_hdr* tcpHdr = (libnet_tcp_hdr*)((u_char*)ipHdr + ipHdr->ip_hl * 4);
   libnet_tcp_hdr* tcpHdr = (libnet_tcp_hdr*)((u_char*)ipHdr + sizeof(libnet_ipv4_hdr));
+  if (tcpHdr->th_flags & (TH_RST | TH_FIN)) return;
 
-  std::cout << ntohs(tcpHdr->th_dport) << " " << std::endl;
+  int sendBufSize = header->caplen;
+  u_char sendBuffer[sendBufSize];
+  memcpy(sendBuffer, pkt_data, sendBufSize);
+
+  libnet_ethernet_hdr* sendEthHdr = (libnet_ethernet_hdr*)sendBuffer;
+  libnet_ipv4_hdr* sendIpHdr = (libnet_ipv4_hdr*)(sendEthHdr + 1);
+  libnet_tcp_hdr* sendTcpHdr = (libnet_tcp_hdr*)((u_char*)sendIpHdr + sizeof(libnet_ipv4_hdr));
+
+  // TO DO(sendEthHdr)
+
+  // TO DO(sendTpHdr)
+  //sendIpHdr->ip_tos = 0x44;
+
+  // TO DO(sendTcpHdr)
+  sendTcpHdr->th_flags |= TH_RST;
+
+  // Checksum
+  tcpHdr->th_sum = htons(tcpChecksum(sendIpHdr, sendTcpHdr));
+  //ipHdr->ip_sum = htons(ipChecksum(sendIpHdr));
+
+  int res = pcap_sendpacket(handle, (const u_char*)sendBuffer, sendBufSize);
+
+  std::cout << ntohs(tcpHdr->th_dport) << " res=" << res << std::endl;
 }
 
 int main() {
   pcap_if_t* d = getDevice();
-  if (d == NULL) {
+  if (d == NULL)
     return -1;
-  }
 
   pcap_t* handle = openDevice(d);
-  if (handle == NULL) {
+  if (handle == NULL)
     return -1;
-  }
 
   while (true) {
     struct pcap_pkthdr *header;
@@ -131,9 +147,8 @@ int main() {
     int res = pcap_next_ex(handle, &header, &pkt_data);
     if (res == 0) continue;
     if (res < 0) break;
-    processPacket(d, header, pkt_data);
+    processPacket(handle, header, pkt_data);
   }
   pcap_close(handle);
   pcap_freealldevs(alldevs);
-
 }
